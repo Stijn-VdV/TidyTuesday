@@ -108,6 +108,8 @@ gg_fish2015 <- gg_fish %>%
 
 ```{r function for y-axis labels}
   # Source: slightly adapted from https://5harad.com/mse125/r/visualization_code.html
+  # used to add labelling to y-axis (in this case, only 'Mil' label is used)
+  # originally "K" would also be used in facet plot, but did not work out as envisioned
 addUnits <- function(n) {
   labels <- ifelse(n < 1000, n,  # less than thousands
                    ifelse(n < 1e6, paste0(round(n/1e3), 'K'),  # in thousands
