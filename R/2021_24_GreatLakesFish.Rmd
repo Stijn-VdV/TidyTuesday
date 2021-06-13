@@ -64,7 +64,9 @@ df_fish <- fishing %>%
     species = str_replace_all(species, "And", "and")
       ) %>% 
   group_by(species) %>% 
+    # create ID for pivoting
   mutate(ID = row_number()) %>% 
+    # pivot to wide table -> not all fish species were recorded each year
   pivot_wider(
     id_cols = c(ID, year, lake),
     names_from = species, 
@@ -72,13 +74,16 @@ df_fish <- fishing %>%
     values_fill = 0
     ) %>% 
   ungroup() %>% 
+    # bring table back to long format
   pivot_longer(
     cols = -c(year, lake, ID), 
     names_to = "species", 
     values_to = "values") %>% 
   group_by(year, species) %>% 
+    # calculate yearly production per year per fish species
   summarize(yearly_prod = sum(values)) %>% 
   group_by(species) %>% 
+    # calculate cumulative sum of production through the years, by species
   mutate(cumsum_prod = cumsum(yearly_prod)) %>% 
   ungroup() %>% 
   mutate(across(species, factor)) 
@@ -87,7 +92,9 @@ df_fish <- fishing %>%
   # top 10 fish with highest production over all years since first records
 topfish <- df_fish %>% 
   group_by(species) %>% 
+    # total sum of yearly production
   summarise(total = sum(yearly_prod)) %>% 
+    # return only top 10 species with highest total production
   top_n(total, n = 10)
 
   # join topfish data
