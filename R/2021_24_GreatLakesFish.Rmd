@@ -1,0 +1,198 @@
+---
+title: "2021_24_GreatLakesFish"
+author: "Stijn Van de Vondel"
+date: "12-6-2021"
+output: html_document
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+  # Load packages and setup
+```{r prep}
+library(tidyverse)
+library(extrafont)
+library(ggsci)
+library(ggtext)
+
+theme_set(theme_minimal(base_family = "Bitter", base_size = 13))
+
+theme_update(
+  plot.title = element_text(family = "Bitter", color = "grey40", size = 12),
+  plot.caption = element_text(size = 8, hjust = 0.95, colour = "grey30"), 
+  #strip.text = element_text(face = "bold"), 
+  panel.spacing = unit(2, "lines"), 
+  plot.background = element_rect(fill = "grey95", color = "grey95"), 
+  panel.grid = element_blank(), 
+  legend.position = "none", 
+  #panel.grid.major.y = element_line(colour = "grey80"), 
+  axis.ticks.x = element_line(colour = "grey80")#, 
+  #axis.line.x = element_blank()
+)
+
+```
+
+
+  # Load data
+```{r data}
+fishing <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-06-08/fishing.csv')
+#stocked <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-06-08/stocked.csv')
+
+```
+
+```{r data wrangling}
+  # clean dataset
+df_fish <- fishing %>% 
+  select(-c(comments, region)) %>% 
+  drop_na(values) %>% 
+  filter(values > 0) %>% 
+    # clean names
+  mutate(species = tolower(species), 
+         species = case_when(
+           str_detect(species, "catfish|bullheads") ~ "channel catfish and bullheads", 
+           str_detect(species, "cisco|chub") ~ "cisco and chubs", 
+           str_detect(species, "rock bass|crappie") ~ "rock bass and crappie", 
+           TRUE ~ species), 
+         species = str_replace(species, "amerci", "americ")
+         ) %>% 
+    # capitalize first letter of fish names
+  mutate( 
+    species = str_to_title(species), 
+    species = str_replace_all(species, "And", "and")
+      ) %>% 
+  group_by(species) %>% 
+  mutate(ID = row_number()) %>% 
+  pivot_wider(
+    id_cols = c(ID, year, lake),
+    names_from = species, 
+    values_from = values, 
+    values_fill = 0
+    ) %>% 
+  ungroup() %>% 
+  pivot_longer(
+    cols = -c(year, lake, ID), 
+    names_to = "species", 
+    values_to = "values") %>% 
+  group_by(year, species) %>% 
+  summarize(yearly_prod = sum(values)) %>% 
+  group_by(species) %>% 
+  mutate(cumsum_prod = cumsum(yearly_prod)) %>% 
+  ungroup() %>% 
+  mutate(across(species, factor)) 
+
+
+  # top 10 fish with highest production over all years since first records
+topfish <- df_fish %>% 
+  group_by(species) %>% 
+  summarise(total = sum(yearly_prod)) %>% 
+  top_n(total, n = 10)
+
+  # join topfish data
+gg_fish <- df_fish %>% 
+  right_join(topfish, by = "species")
+
+  # subset for label creation
+gg_fish2015 <- gg_fish %>% 
+  filter(year == 2015, species %in% topfish$species)
+```
+
+```{r function for y-axis labels}
+  # Source: slightly adapted from https://5harad.com/mse125/r/visualization_code.html
+addUnits <- function(n) {
+  labels <- ifelse(n < 1000, n,  # less than thousands
+                   ifelse(n < 1e6, paste0(round(n/1e3), 'K'),  # in thousands
+                          ifelse(n < 1e9, paste0(round(n/1e6), 'Mil'),  # in millions
+                                 ifelse(n < 1e12, paste0(round(n/1e9), 'B'), # in billions
+                                        ifelse(n < 1e15, paste0(round(n/1e12), 'T'), # in trillions
+                                               'too big!'
+                                        )))))
+  return(labels)
+}
+
+```
+
+
+```{r plot, fig.width = 11, fig.height = 7}
+gg_fish %>% 
+    # only visualize top10 fish with highest production across all Great Lakes
+  filter(species %in% topfish$species) %>% 
+  ggplot() +
+    # grey background, increasing plot area to work with in the process
+  annotate(
+    geom = "rect", 
+    xmin = 1865, xmax = 2045, 
+    ymin = -Inf, ymax = 22e6,
+    fill = "grey95"
+  ) +
+    # manually add grid lines -> otherwise grid lines extend into text labels
+  geom_segment(
+    x = 1865, xend = 2015, 
+    y =  5e06, yend = 5e06,
+    colour = "grey80") +
+  geom_segment(
+    x = 1865, xend = 2015, 
+    y =  10e06, yend = 10e06,
+    colour = "grey80") +
+  geom_segment(
+    x = 1865, xend = 2015, 
+    y =  15e06, yend = 15e06,
+    colour = "grey80") +
+  geom_segment(
+    x = 1865, xend = 2015, 
+    y =  20e06, yend = 20e06,
+    colour = "grey80") +
+    # create area plot
+  geom_area(
+    aes(x = year, y = cumsum_prod, fill = fct_reorder(species, -total)), 
+    position = "stack", colour = "grey25"
+  ) +
+    # labelling of x and y axis
+  scale_y_continuous(labels = addUnits, 
+                     expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), 
+                     breaks = seq(1880, 2015, 15)) +
+    # create labels for x and y-axis
+  labs(y = "Production (pounds)", 
+       x = "", 
+       caption = "DataViz by Stijn Van de Vondel | Data by glfc.org/great-lakes-databases.php") +
+    # create text labels with basic HMTL formatting
+  geom_richtext(
+    data = gg_fish2015,
+    aes(x = year, y = cumsum_prod, group = fct_reorder(species, -total), 
+        label = glue::glue("<b style='font-size:7pt;'>{fct_reorder(species, -cumsum_prod)}</b><br>Cum. sum of {round(cumsum_prod, 1)} lbs"),
+        color = fct_reorder(species, -total), 
+        hjust = 0),
+    position = position_stack(vjust = .5),
+    size = 2.3,
+    label.colour = NA,
+    fill = NA
+  ) +
+    # sepearate layer for title
+  geom_richtext(
+    data = tibble(year = 1865, cumsum_prod = 20e06), 
+    aes(x = year, y = cumsum_prod, 
+        label = glue::glue(
+          "<p><b style='font-size:23pt;color:black;text-align=left;'><br>The Great Lakes</b></p><br>
+<p><span style='font-size:12pt;text-align=left'><strong>
+Lake Superior, Michigan, Huron, Erie and Ontario</strong> have been a major source of commercial fishing,<br> 
+with records dating back to the 19<sup>th</sup> century. Here, the 10 fish species with the largest <br>cumulated fish catches (<em>production</em>, in pounds) across the Great Lakes are shown.</span></p>")), 
+    family = "Roboto", 
+    colour = "grey40", 
+    label.colour = NA,
+    fill = NA, 
+    inherit.aes = FALSE,
+    hjust = 0
+  ) +
+    # define colour palette for fill (area) and colour (text) elements
+  scale_fill_npg() +
+  scale_colour_npg()
+  
+ggplot2::ggsave(last_plot(), filename = "test.pdf",device = "pdf", 
+                width = 11, height = 7, dpi = 500)
+  
+```
+
+
